@@ -5,10 +5,12 @@ python:
   - "3.8"
 before_install:
   - sudo apt-get install poppler-utils
+  - pip3 install --upgrade pip setuptools wheel
   - sudo apt install tesseract-ocr
   - git clone https://github.com/Layout-Parser/layout-parser.git
 install:
-  - pip install pillow
+  - pip install Pillow
+  - pip install torch
   - pip install psutil
   - pip install memory_profiler
   - pip install codecov

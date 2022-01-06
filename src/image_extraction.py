@@ -1,7 +1,4 @@
-try:
-    from PIL import Image
-except:
-    import Image
+from PIL import Image
 import cv2
 import pandas  as pd
 import numpy as np 
