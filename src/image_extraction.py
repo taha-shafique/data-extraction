@@ -1,118 +1,202 @@
 from PIL import Image
 import cv2
-import pandas  as pd
+import pandas as pd
 import numpy as np 
 import matplotlib.pyplot as plt
 import layoutparser as lp
+from typing import List, Tuple, Optional, Union, Dict, Any
+import os
+import logging
 
-
-class image_extraction: 
+class ImageExtraction: 
   
-  def __init__(self, model_path, label_dict, threshold): 
+  def __init__(self, model_path: str, label_dict: Dict[int, str], threshold: float) -> None:
+    """Initialize the image extraction model.
+    
+    Args:
+        model_path: Path to the layout detection model
+        label_dict: Dictionary mapping label IDs to names
+        threshold: Detection confidence threshold
+        
+    Raises:
+        FileNotFoundError: If model file doesn't exist
+        Exception: If model initialization fails
+    """
+    if not os.path.exists(model_path):
+      raise FileNotFoundError(f"Model file not found: {model_path}")
+    
     self.model_path = model_path 
-    self.label_dict= label_dict
+    self.label_dict = label_dict
     self.threshold = threshold 
-    self.ocr_agent = lp.TesseractAgent(languages='eng') ####
-    self.layout = None # layout is none when its instantiated. But will be changed when get_layout 
-      # method is called. 
-    self.page = None 
-
-    self.text_blocks = None 
-    self.figure_blocks = None
-    self.title_blocks = None 
-
-
-    self.model = lp.Detectron2LayoutModel(self.model_path,
-                                     extra_config = ["MODEL.ROI_HEADS.SCORE_THRESH_TEST", self.threshold],
-                                     label_map = self.label_dict)
-
-    #class variables:
-
-    IMAGENET_DEFAULT_MEAN = [0.485, 0.456, 0.406]
-    IMAGENET_DEFAULT_STD = [0.229, 0.224, 0.225]
-    IMAGENET_STANDARD_MEAN = [0.5, 0.5, 0.5]
-    IMAGENET_STANDARD_STD = [0.5, 0.5, 0.5]
     
-  def get_layout(self, image): 
-    '''Get a layout object for a specified image'''
-    self.layout = self.model.detect(Image.open(image)) # returns a layoutparser object 
-    self.page = Image.open(image)
-
-
-  def get_image(self, textblock): 
-    '''returns the image inline for a specfic section of an image'''
-    #return plt.imshow(self.layout[position].crop_image(np.array(self.page)))
-    return np.asarray(textblock.crop_image(np.array(self.page)))
+    try:
+      self.ocr_agent = lp.TesseractAgent(languages='eng')
+      self.model = lp.Detectron2LayoutModel(
+        self.model_path,
+        extra_config=["MODEL.ROI_HEADS.SCORE_THRESH_TEST", self.threshold],
+        label_map=self.label_dict
+      )
+    except Exception as e:
+      logging.error(f"Failed to initialize model: {str(e)}")
+      raise Exception(f"Model initialization failed: {str(e)}")
     
+    # Initialize instance variables
+    self.layout: Optional[lp.Layout] = None
+    self.page: Optional[Image.Image] = None
+    self.text_blocks: Optional[List[Any]] = None 
+    self.figure_blocks: Optional[List[Any]] = None
+    self.title_blocks: Optional[List[Any]] = None
+    
+  def get_layout(self, image_path: str) -> None:
+    """Get a layout object for a specified image.
+    
+    Args:
+        image_path: Path to the image file
+        
+    Raises:
+        FileNotFoundError: If image file doesn't exist
+        Exception: If layout detection fails
+    """
+    if not os.path.exists(image_path):
+      raise FileNotFoundError(f"Image file not found: {image_path}")
+    
+    try:
+      self.page = Image.open(image_path)
+      self.layout = self.model.detect(self.page)
+    except Exception as e:
+      logging.error(f"Failed to detect layout for {image_path}: {str(e)}")
+      raise Exception(f"Layout detection failed: {str(e)}")
 
-  def return_blocks(self): 
-    # This needs re-work. How would this be scalable if other object types are used in label_map?
+  def get_image(self, textblock: Any) -> np.ndarray:
+    """Returns the image array for a specific section of an image.
+    
+    Args:
+        textblock: Layout block to extract image from
+        
+    Returns:
+        Numpy array of the cropped image
+        
+    Raises:
+        ValueError: If page is not loaded
+        Exception: If image cropping fails
+    """
+    if self.page is None:
+      raise ValueError("No page loaded. Call get_layout() first.")
+    
+    try:
+      return np.asarray(textblock.crop_image(np.array(self.page)))
+    except Exception as e:
+      logging.error(f"Failed to crop image: {str(e)}")
+      raise Exception(f"Image cropping failed: {str(e)}")
 
-    text_blocks = []
-    figure_blocks = []
-    title_blocks = []
+  def return_blocks(self) -> None:
+    """Categorize layout blocks by type.
+    
+    Raises:
+        ValueError: If layout is not loaded
+    """
+    if self.layout is None:
+      raise ValueError("No layout loaded. Call get_layout() first.")
+    
+    try:
+      text_blocks = []
+      figure_blocks = []
+      title_blocks = []
 
-    for i in range(len(self.layout)):
+      for block in self.layout:
+        if block.type == 'Figure':
+          figure_blocks.append(block)
+        elif block.type == 'Text':
+          text_blocks.append(block)
+        elif block.type == 'Title':
+          title_blocks.append(block)
 
-      if self.layout[i].type == 'Figure': #if layout type is figure, append to the figure block list 
-        figure_blocks.append(self.layout[i])
+      self.text_blocks = text_blocks
+      self.figure_blocks = figure_blocks
+      self.title_blocks = title_blocks
+    except Exception as e:
+      logging.error(f"Failed to categorize blocks: {str(e)}")
+      raise Exception(f"Block categorization failed: {str(e)}")
 
-      elif self.layout[i].type == 'Text': #if layout type is figure, append to the figure block list 
-        text_blocks.append(self.layout[i])
-
-      elif self.layout[i].type == 'Title': #if layout type is figure, append to the figure block list 
-        title_blocks.append(self.layout[i])
-      #figure_blocks = lp.Layout([b for b in layout if b.type=='Figure']
-
-
-    self.text_blocks = text_blocks
-    self.figure_blocks = figure_blocks
-    self.title_blocks = title_blocks
-
-    # return text_blocks, figure_blocks, title_blocks
-
-
-# where to get list to title blocks, and coordinate of figure
-
-  def identify_title(self, coordinate_of_figure): 
-    '''Provides the title for a given picture'''
-    counter = 0 
-    for block in self.title_blocks: #This returns the TextBlock in the list
-      counter += 1 
-      argument_1 = block.coordinates[0] >= coordinate_of_figure[0]*.80 and block.coordinates[0] <= coordinate_of_figure[0]*1.20
-      #argument_2 = block.coordinates[2] >= coordinate_of_figure[2]*.95 and block.coordinates[2] <= coordinate_of_figure[2]*1.05
-      argument_3 = block.coordinates[1] >= coordinate_of_figure[3] and block.coordinates[1] <= coordinate_of_figure[3]*1.20
+  def identify_title(self, coordinate_of_figure: Tuple[float, float, float, float], 
+                    x_tolerance: float = 0.2, y_tolerance: float = 0.2) -> Union[Any, str]:
+    """Provides the title for a given figure based on coordinate proximity.
+    
+    Args:
+        coordinate_of_figure: Tuple of (x1, y1, x2, y2) coordinates
+        x_tolerance: Horizontal tolerance for matching (default 0.2 = 20%)
+        y_tolerance: Vertical tolerance for matching (default 0.2 = 20%)
+        
+    Returns:
+        Title block if found, otherwise "No title block found"
+        
+    Raises:
+        ValueError: If title_blocks is not initialized
+    """
+    if self.title_blocks is None:
+      raise ValueError("Title blocks not initialized. Call return_blocks() first.")
+    
+    try:
+      for block in self.title_blocks:
+        x_match = (coordinate_of_figure[0] * (1 - x_tolerance) <= block.coordinates[0] <= 
+                  coordinate_of_figure[0] * (1 + x_tolerance))
+        y_match = (coordinate_of_figure[3] <= block.coordinates[1] <= 
+                  coordinate_of_figure[3] * (1 + y_tolerance))
+        
+        if x_match and y_match:
+          return block
       
-      if argument_1 and argument_3: 
-        return block
-
-      elif counter == len(self.title_blocks): 
-        return "No title block found"
-
-      else: 
-        continue 
+      return "No title block found"
+    except Exception as e:
+      logging.error(f"Failed to identify title: {str(e)}")
+      raise Exception(f"Title identification failed: {str(e)}") 
 
 
-  def get_text_and_image(self): 
-
-    figures_title = []
-    text_and_image = []
-
-    # first for loop identifies the blocks
-    for figure in self.figure_blocks: 
-      figures_title.append([figure, self.identify_title(figure.coordinates)])
-
-    # second for loop identifies the text in the blocks
-    for i in range(len(figures_title)):
-      
-
-      segment_image = (figures_title[i][1]
-                        .pad(left=5, right=5, top=5, bottom=5)
-                        .crop_image(np.array(self.page)))
+  def get_text_and_image(self) -> List[Tuple[str, np.ndarray]]:
+    """Extract text and image pairs from figures and their titles.
     
-
-      text = self.ocr_agent.detect(segment_image)
-      
-      text_and_image.append([text, self.get_image(figures_title[i][0])])
+    Returns:
+        List of tuples containing (text, image_array) pairs
+        
+    Raises:
+        ValueError: If required blocks are not initialized
+        Exception: If text/image extraction fails
+    """
+    if self.figure_blocks is None:
+      raise ValueError("Figure blocks not initialized. Call return_blocks() first.")
     
-    return text_and_image
+    try:
+      figures_title = []
+      text_and_image = []
+
+      # Identify title blocks for each figure
+      for figure in self.figure_blocks: 
+        title_block = self.identify_title(figure.coordinates)
+        figures_title.append([figure, title_block])
+
+      # Extract text and images
+      for figure, title in figures_title:
+        if title != "No title block found":
+          try:
+            # Pad and crop the title segment
+            segment_image = (title
+                            .pad(left=5, right=5, top=5, bottom=5)
+                            .crop_image(np.array(self.page)))
+            
+            # Extract text using OCR
+            text = self.ocr_agent.detect(segment_image)
+            
+            # Get figure image
+            figure_image = self.get_image(figure)
+            
+            text_and_image.append((text, figure_image))
+          except Exception as e:
+            logging.warning(f"Failed to process figure-title pair: {str(e)}")
+            continue
+        else:
+          logging.warning("Figure found without corresponding title")
+      
+      return text_and_image
+    except Exception as e:
+      logging.error(f"Failed to extract text and images: {str(e)}")
+      raise Exception(f"Text and image extraction failed: {str(e)}")
